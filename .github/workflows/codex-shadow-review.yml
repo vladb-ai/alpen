@@ -1,0 +1,94 @@
+name: Codex Shadow Review (Claude)
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  id-token: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream:
+        description: "Upstream repo Codex reviewed (owner/name)"
+        required: true
+        default: "alpenlabs/alpen"
+      base:
+        description: "PR base branch"
+        required: true
+        default: "main"
+      head_sha:
+        description: "EXACT commit Codex reviewed"
+        required: true
+      pr:
+        description: "Upstream PR number (for labeling)"
+        required: true
+      tracking_issue:
+        description: "Issue number in this fork to post the shadow review to"
+        required: true
+        default: "28"
+
+jobs:
+  shadow:
+    runs-on: ubuntu-latest
+    env:
+      UPSTREAM: ${{ inputs.upstream }}
+      BASE: ${{ inputs.base }}
+      HEAD_SHA: ${{ inputs.head_sha }}
+      PR: ${{ inputs.pr }}
+      TRACK: ${{ inputs.tracking_issue }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # Full repo context at the EXACT commit Codex reviewed (same context Codex had).
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.upstream }}
+          ref: ${{ inputs.head_sha }}
+          fetch-depth: 0
+
+      # Authoritative PR diff (three-dot, merge-base stable) == what Codex/GitHub shows.
+      - name: Fetch the exact diff Codex reviewed
+        run: |
+          set -euo pipefail
+          gh api "repos/${UPSTREAM}/compare/${BASE}...${HEAD_SHA}" \
+            -H "Accept: application/vnd.github.v3.diff" > pr.diff
+          FILES=$(gh api "repos/${UPSTREAM}/compare/${BASE}...${HEAD_SHA}" -q '.files|length')
+          COMMITS=$(gh api "repos/${UPSTREAM}/compare/${BASE}...${HEAD_SHA}" -q '.total_commits')
+          TIP=$(gh api "repos/${UPSTREAM}/compare/${BASE}...${HEAD_SHA}" -q '.commits[-1].sha')
+          BYTES=$(wc -c < pr.diff)
+          echo "### Shadow diff for ${UPSTREAM}#${PR} @ ${HEAD_SHA}" >> "$GITHUB_STEP_SUMMARY"
+          echo "files=$FILES commits=$COMMITS bytes=$BYTES compare_tip=$TIP" | tee -a "$GITHUB_STEP_SUMMARY"
+          # verification: the compare tip MUST equal the commit Codex reviewed
+          if [ "${TIP}" != "${HEAD_SHA}" ] && [ "${TIP:0:10}" != "${HEAD_SHA:0:10}" ]; then
+            echo "::error::compare tip ($TIP) != requested head_sha ($HEAD_SHA) — wrong commit!"; exit 1
+          fi
+          if [ "${BYTES}" -lt 2 ]; then echo "::error::empty diff"; exit 1; fi
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          prompt: |
+            You are performing a general code review — the SAME kind OpenAI Codex does in this repo —
+            on the EXACT diff Codex reviewed for ${{ inputs.upstream }} PR #${{ inputs.pr }} at commit ${{ inputs.head_sha }}.
+
+            The authoritative PR diff is in the workspace file `pr.diff` — Read it first. You also have the FULL
+            repository checked out at that exact commit, so Read/Grep/Glob surrounding code for context.
+
+            Do a senior-engineer review for MAJOR issues only — the bar Codex uses ("did not find any major issues"
+            unless something real). Cover: correctness/logic bugs, security vulnerabilities, data loss/corruption,
+            concurrency/race conditions, resource exhaustion/DoS, and clear API/contract misuse. Do NOT report style,
+            naming, formatting, or speculative nits.
+
+            For each real issue: `file:line`, a one-line severity (Critical/High/Medium/Low), a concrete failure
+            scenario, and a concrete fix.
+
+            You MUST finish by posting exactly ONE comment to the tracking issue, even if you find nothing. Run:
+            `gh issue comment ${{ inputs.tracking_issue }} --repo ${{ github.repository }} --body "<markdown>"`
+            The comment MUST start with this exact header line (for automated pairing with Codex):
+            `### Shadow: ${{ inputs.upstream }}#${{ inputs.pr }} @ ${{ inputs.head_sha }} (claude-sonnet-5)`
+            Then either your findings, or "No major issues found." if none. Posting is required and must be your final action.
+          claude_args: |
+            --model claude-sonnet-5
+            --max-turns 40
+            --allowedTools "Read,Grep,Glob,Bash(cat:*),Bash(ls:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(head:*),Bash(tail:*),Bash(sed:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh issue comment:*),Bash(gh api:*)"
