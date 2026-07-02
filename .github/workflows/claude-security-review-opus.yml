@@ -1,0 +1,58 @@
+name: AI Security Review (Opus 4.8)
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number to review with Opus 4.8 (xhigh effort)"
+        required: true
+
+jobs:
+  security-opus:
+    runs-on: ubuntu-latest
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check out PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr checkout "$PR_NUMBER" --repo "${{ github.repository }}"
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          use_sticky_comment: true
+          prompt: |
+            Perform a security review of pull request #${{ env.PR_NUMBER }} in ${{ github.repository }}.
+            Run `gh pr diff ${{ env.PR_NUMBER }}` to get the changes, and read the surrounding code for context.
+
+            Report only real, exploitable vulnerabilities introduced or exposed by this diff:
+            - Injection (SQL / command / template), unsafe deserialization, path traversal, SSRF
+            - Broken authn/authz, missing access checks, insecure direct object references
+            - Cryptographic misuse, weak randomness, secret / credential exposure
+            - Memory safety, integer overflow/underflow, unchecked arithmetic, panics on untrusted input (watch Rust `unsafe`)
+            - Input-validation gaps, unsafe error handling, resource exhaustion / DoS
+
+            For each finding report: `file:line`, severity (Critical/High/Medium/Low), a concrete exploit scenario, and a concrete fix.
+            Favor precision over recall — do not report style issues or speculative concerns.
+
+            You MUST finish by posting exactly ONE pull-request comment — even when you find nothing (in that
+            case the body is simply "No security issues found in this diff."). Posting is required and must be
+            your final action. Run:
+            `gh pr comment ${{ env.PR_NUMBER }} --repo ${{ github.repository }} --body "<your review as markdown>"`
+            Start the comment with the heading "## 🔒 AI Security Review (Opus 4.8)".
+          claude_args: |
+            --model claude-opus-4-8
+            --effort xhigh
+            --max-turns 40
+            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api:*),Bash(gh pr comment:*),Bash(cat:*),Bash(ls:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(head:*),Bash(tail:*),Bash(sed:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Read,Grep,Glob"
