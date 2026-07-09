@@ -94,7 +94,7 @@ jobs:
             You MUST finish by posting exactly ONE comment to the tracking issue, even if you find nothing. Run:
             `gh issue comment ${{ inputs.tracking_issue }} --repo ${{ github.repository }} --body "<markdown>"`
             The comment MUST start with this exact header line (for automated pairing with Codex):
-            `### Shadow: ${{ inputs.upstream }}#${{ inputs.pr }} @ ${{ inputs.head_sha }} (${{ inputs.model }})`
+            `### Shadow: ${{ inputs.upstream }}#${{ inputs.pr }} @ ${{ inputs.head_sha }} (${{ inputs.model }}${{ inputs.effort != '' && format(' {0}', inputs.effort) || ' default-effort' }})`
             Then either your findings, or "No major issues found." if none.
             Posting this comment is REQUIRED and must be your final action — once it is posted, STOP immediately and do not run any further tools.
           claude_args: |
