@@ -27,6 +27,14 @@ on:
         description: "Issue number in this fork to post the shadow review to"
         required: true
         default: "28"
+      model:
+        description: "Claude model id"
+        required: false
+        default: "claude-sonnet-5"
+      effort:
+        description: "Reasoning effort (blank=default; e.g. xhigh for Opus)"
+        required: false
+        default: ""
 
 jobs:
   shadow:
@@ -86,10 +94,11 @@ jobs:
             You MUST finish by posting exactly ONE comment to the tracking issue, even if you find nothing. Run:
             `gh issue comment ${{ inputs.tracking_issue }} --repo ${{ github.repository }} --body "<markdown>"`
             The comment MUST start with this exact header line (for automated pairing with Codex):
-            `### Shadow: ${{ inputs.upstream }}#${{ inputs.pr }} @ ${{ inputs.head_sha }} (claude-sonnet-5)`
+            `### Shadow: ${{ inputs.upstream }}#${{ inputs.pr }} @ ${{ inputs.head_sha }} (${{ inputs.model }})`
             Then either your findings, or "No major issues found." if none.
             Posting this comment is REQUIRED and must be your final action — once it is posted, STOP immediately and do not run any further tools.
           claude_args: |
-            --model claude-sonnet-5
+            --model ${{ inputs.model }}
+            ${{ inputs.effort != '' && format('--effort {0}', inputs.effort) || '' }}
             --max-turns 50
             --allowedTools "Read,Grep,Glob,Bash(cat:*),Bash(ls:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(head:*),Bash(tail:*),Bash(sed:*),Bash(wc:*),Bash(awk:*),Bash(cut:*),Bash(sort:*),Bash(uniq:*),Bash(jq:*),Bash(diff:*),Bash(git:*),Bash(gh issue comment:*),Bash(gh issue view:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh api:*)"
